@@ -1,50 +1,46 @@
 import cv2
+import face_recognition
+import tensorflow as tf
+import numpy as np
 
-# Load pre-trained models for face and gender detection
-face_model = cv2.dnn.readNetFromCaffe(
-    'deploy.prototxt.txt', 'res10_300x300_ssd_iter_140000.caffemodel')
-gender_model = cv2.dnn.readNetFromCaffe(
-    'deploy_gender.prototxt', 'gender_net.caffemodel')
+# Load the pre-trained gender classification model
+gender_model = tf.keras.models.load_model('gender_model.h5')
 
-# Initialize the video capture
-video_capture = cv2.VideoCapture(0)
+# Open the camera
+cap = cv2.VideoCapture(0)
 
 while True:
-    ret, frame = video_capture.read()
+    ret, frame = cap.read()
 
     if not ret:
         break
 
-    # Detect faces in the frame
-    (h, w) = frame.shape[:2]
-    blob = cv2.dnn.blobFromImage(cv2.resize(frame, (300, 300)), 1.0,
-                                 (300, 300), (104.0, 177.0, 123.0))
-    face_model.setInput(blob)
-    detections = face_model.forward()
+    # Find faces in the frame
+    face_locations = face_recognition.face_locations(frame)
 
-    # Loop over the detections
-    for i in range(0, detections.shape[2]):
-        confidence = detections[0, 0, i, 2]
+    for top, right, bottom, left in face_locations:
+        # Draw a box around the face
+        cv2.rectangle(frame, (left, top), (right, bottom), (0, 0, 255), 2)
 
-        if confidence > 0.5:
-            box = detections[0, 0, i, 3:7] * np.array([w, h, w, h])
-            (startX, startY, endX, endY) = box.astype("int")
+        # Extract the face region
+        face = frame[top:bottom, left:right]
 
-            face = frame[startY:endY, startX:endX]
-            blob = cv2.dnn.blobFromImage(face, 1.0, (227, 227), (78.4263377603, 87.7689143744, 114.895847746), swapRB=False)
-            gender_model.setInput(blob)
-            gender_preds = gender_model.forward()
-            gender = gender_list[gender_preds[0].argmax()]
+        # Resize the face for gender classification
+        face = cv2.resize(face, (64, 64))
+        face = np.expand_dims(face, axis=0)
 
-            label = "{}: {:.2f}%".format(gender, confidence * 100)
-            cv2.rectangle(frame, (startX, startY), (endX, endY), (0, 0, 255), 2)
-            y = startY - 10 if startY - 10 > 10 else startY + 10
-            cv2.putText(frame, label, (startX, y),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 255), 2)
+        # Predict the gender
+        gender_prob = gender_model.predict(face)[0]
+        gender = "Male" if gender_prob[0] > 0.5 else "Female"
 
-    cv2.imshow("Video", frame)
-    if cv2.waitKey(1) & 0xFF == ord('q'):
+        # Display the gender
+        cv2.putText(frame, f'Gender: {gender}', (left, top - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+
+    # Display the frame with boxes and gender labels
+    cv2.imshow('Face Detection and Gender Classification', frame)
+
+    if cv2.waitKey(1) & 0xFF == 27:  # Press Esc to exit
         break
 
-video_capture.release()
+cap.release()
 cv2.destroyAllWindows()
